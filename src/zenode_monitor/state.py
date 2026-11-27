@@ -107,6 +107,7 @@ class TopicEntry:
     system: bool = False
     matched: bool = True
     """False when nodes subscribe but nothing publishes a matching key."""
+    zenode: bool = False
 
     @property
     def latched(self) -> bool:
@@ -237,6 +238,7 @@ class Store:
         self.namespace = ""
         self.nodes: dict[str, Node] = {}
         self.topics: dict[str, TopicEntry] = {}
+        self._observed_topics: set[str] = set()
         self.services: dict[str, ServiceEntry] = {}
         self.logs: deque[LogRecordMsg] = deque(maxlen=LOG_CAPACITY)
         self.logs_appended = 0
@@ -341,6 +343,11 @@ class Store:
         self.stream.add(sample)
         self.dirty.add("stream")
 
+    def on_topic_observed(self, key: str) -> None:
+        if key not in self._observed_topics:
+            self._observed_topics.add(key)
+            self._reindex()
+
     def tick(self) -> None:
         """Flag nodes that hold their token but stopped sending heartbeats."""
         now = time.monotonic()
@@ -357,7 +364,7 @@ class Store:
     # -- derived indexes -----------------------------------------------------
 
     def _reindex(self) -> None:
-        topics: dict[str, TopicEntry] = {}
+        topics = {key: TopicEntry(key) for key in self._observed_topics}
         services: dict[str, ServiceEntry] = {}
         for node in self.nodes.values():
             if node.info is None or not node.alive:
@@ -366,9 +373,9 @@ class Store:
                 for e in entities:
                     entry = topics.get(e.key)
                     if entry is None:
-                        entry = topics[e.key] = TopicEntry(
-                            e.key, system=bool(_SYSTEM_KEY.search(e.key))
-                        )
+                        entry = topics[e.key] = TopicEntry(e.key)
+                    entry.zenode = True
+                    entry.system = bool(_SYSTEM_KEY.search(e.key))
                     getattr(entry, attr).add(node.name)
                     entry.schema_name = entry.schema_name or e.schema_name
                     if attr == "publishers" or not entry.flags:
@@ -387,7 +394,11 @@ class Store:
                 wild.publishers |= other.publishers
                 other.subscribers |= wild.subscribers
         for entry in topics.values():
-            entry.matched = bool(entry.publishers)
+            entry.matched = (
+                bool(entry.publishers)
+                or entry.key in self._observed_topics
+                or (entry.wildcard and any(_intersects(entry.key, key) for key in self._observed_topics))
+            )
         self.topics, self.services = topics, services
         self.dirty.update({"topics", "services"})
 

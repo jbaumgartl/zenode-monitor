@@ -201,7 +201,8 @@ class TopicsPage(Page):
             row = self.rows.get(t.key) or w.ListRow(t.key, self._on_pick)
             row.title.value = short_key(t.key, ns)
             flow = f"{', '.join(sorted(t.publishers)) or '—'} → {', '.join(sorted(t.subscribers)) or '—'}"
-            row.subtitle.value = " · ".join(x for x in (t.schema_name, flow) if x)
+            kind = "zenode" if t.zenode else "plain zenoh"
+            row.subtitle.value = " · ".join(x for x in (kind, t.schema_name, flow) if x)
             trailing: list[ft.Control] = []
             if t.latched:
                 trailing.append(w.pill("latched"))
@@ -222,7 +223,7 @@ class TopicsPage(Page):
                 self.list_empty.content = w.empty_state(
                     ft.Icons.SENSORS_OFF_OUTLINED,
                     "No topics yet",
-                    "Topics appear as soon as a running node publishes its descriptor.",
+                    "Topics appear from zenode descriptors or when a zenoh message is observed.",
                 )
 
     # -- detail ------------------------------------------------------------------
@@ -233,6 +234,8 @@ class TopicsPage(Page):
         self._pinned = self._pinned_row = self._detail_sample = None
         self.pubs_holder = ft.Container()
         self.subs_holder = ft.Container()
+        self.topic_kind = ft.Text(size=14)
+        self.schema_name = ft.Text(size=14)
         self.rate = w.StatTile("Rate")
         self.bandwidth = w.StatTile("Bandwidth")
         self.count = w.StatTile("Received")
@@ -265,7 +268,8 @@ class TopicsPage(Page):
                 ),
                 ft.Row(
                     [
-                        ft.Column([w.muted("Type", size=11), ft.Text(entry.schema_name or "unknown", size=14)], spacing=2),
+                        ft.Column([w.muted("Topic", size=11), self.topic_kind], spacing=2),
+                        ft.Column([w.muted("Type", size=11), self.schema_name], spacing=2),
                         ft.Column([w.muted("Published by", size=11), self.pubs_holder], spacing=4),
                         ft.Column([w.muted("Subscribed by", size=11), self.subs_holder], spacing=4),
                     ],
@@ -320,8 +324,10 @@ class TopicsPage(Page):
             row.select(key == entry.key)
 
     def _refresh_peers(self, entry: state.TopicEntry) -> None:
-        self.pubs_holder.content = node_chips(self.app, entry.publishers, "nobody" if entry.matched else "nobody — no running node publishes this")
-        self.subs_holder.content = node_chips(self.app, entry.subscribers, "nobody")
+        self.topic_kind.value = "zenode" if entry.zenode else "plain zenoh"
+        self.schema_name.value = entry.schema_name or "unknown"
+        self.pubs_holder.content = node_chips(self.app, entry.publishers, "unknown" if entry.matched else "nobody — no running node publishes this")
+        self.subs_holder.content = node_chips(self.app, entry.subscribers, "unknown")
 
     def _toggle_pause(self, e: Any = None) -> None:
         stream = self.store.stream
