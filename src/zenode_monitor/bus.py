@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,7 @@ from .state import Store, TopicSample
 
 MAX_PENDING = 2000
 """Topic samples allowed in flight to the loop before new ones are dropped."""
+MAX_DISCOVERED_TOPICS = 2000
 
 _JSON = RawCodec(zenoh.Encoding.APPLICATION_JSON)
 _RAW = RawCodec()
@@ -51,6 +53,7 @@ class MonitorBus:
         self._subs: list[Any] = []
         self._topic_sub: Any = None
         self._topic_gen = 0
+        self._discovery_gen = 0
         self._pending = 0
 
     @property
@@ -85,11 +88,33 @@ class MonitorBus:
             self._subs.append(
                 session.declare_subscriber(log_pattern(ns), self._forward(self.store.on_log))
             )
+            self._discovery_gen += 1
+            gen = self._discovery_gen
+            seen: set[str] = set()
+            lock = threading.Lock()
+
+            def deliver_key(key: str) -> None:
+                if gen == self._discovery_gen:
+                    self.store.on_topic_observed(key)
+
+            def discover(sample: zenoh.Sample) -> None:
+                if sample.kind != zenoh.SampleKind.PUT:
+                    return
+                key = str(sample.key_expr)
+                with lock:
+                    if key in seen or len(seen) >= MAX_DISCOVERED_TOPICS:
+                        return
+                    seen.add(key)
+                with contextlib.suppress(RuntimeError):
+                    self._loop.call_soon_threadsafe(deliver_key, key)
+
+            self._subs.append(session.declare_subscriber("**", discover))
         except Exception:
             await self.disconnect()
             raise
 
     async def disconnect(self) -> None:
+        self._discovery_gen += 1
         self.unwatch_topic()
         if self._presence is not None:
             with contextlib.suppress(Exception):

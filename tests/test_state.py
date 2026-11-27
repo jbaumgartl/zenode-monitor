@@ -112,6 +112,31 @@ def test_topic_and_service_index():
     assert not s.topics["ns/sensors/*/range"].matched
 
 
+def test_observed_topics_merge_with_descriptors_and_survive_reindex():
+    s = Store()
+    s.on_topic_observed("external/sensor")
+    assert not s.topics["external/sensor"].zenode
+    assert s.topics["external/sensor"].matched
+
+    s.on_presence("sub", True)
+    s.on_info(info("sub", subscribes=[EntityInfo(key="external/*", schema_name="Reading")]))
+    assert s.topics["external/sensor"].subscribers == {"sub"}
+    assert not s.topics["external/sensor"].zenode
+    assert s.topics["external/*"].zenode
+    assert s.topics["external/*"].matched
+
+    s.on_presence("pub", True)
+    s.on_info(info("pub", publishes=[EntityInfo(key="external/sensor", schema_name="Reading")]))
+    assert s.topics["external/sensor"].zenode
+    assert s.topics["external/sensor"].publishers == {"pub"}
+    assert s.topics["external/sensor"].schema_name == "Reading"
+    s.on_presence("pub", False)
+    assert not s.topics["external/sensor"].zenode
+    assert s.topics["external/sensor"].matched
+    s.reset()
+    assert not s.topics
+
+
 def test_stream_pause_and_preview():
     s = Store()
     s.stream.reset("k")

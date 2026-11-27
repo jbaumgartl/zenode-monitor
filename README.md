@@ -28,7 +28,7 @@ uv run zenode-monitor
 
 - **Overview**: totals and one card per node.
 - **Nodes**: state, host, uptime, runtime metrics and `@metric` values with history, published and subscribed topics, services, config (if the node sets `describe_config`), recent logs.
-- **Topics**: who publishes and subscribes, plus the live messages of the selected topic with rate and bandwidth. Click a message to keep it open; Pause stops the list.
+- **Topics**: zenode topics from node descriptors and plain zenoh topics discovered from messages, with their kind, known zenode publishers and subscribers, and live messages with rate and bandwidth. Click a message to keep it open; Pause stops the list. Plain topics appear only after a message is observed while connected, including outside the configured namespace; publisher and subscriber identities are not available for plain zenoh. Discovery retains up to 2,000 observed keys per connection and cannot discover past messages.
 - **Services**: a request form generated from the service's JSON Schema (or raw JSON), the reply or error, and the calls made this session.
 - **Logs**: all nodes' log records, filtered by level, node and text.
 

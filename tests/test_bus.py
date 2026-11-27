@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import zenoh
 from pydantic import BaseModel
 from zenode import Node, Service, Topic, TopicSet, every, publish, serve
 from zenode.testing import harness, local_transport
@@ -84,6 +85,29 @@ async def test_monitor_sees_a_node_end_to_end():
         finally:
             await bus.disconnect()
         assert not bus.connected
+
+
+async def test_monitor_discovers_and_watches_plain_zenoh_topic():
+    async with harness("t") as h:
+        store = Store()
+        bus = MonitorBus(store)
+        await bus.connect(local_transport("t"), session=h.session)
+        try:
+            h.session.put("outside/sensor", b'{"value": 1}', encoding=zenoh.Encoding.APPLICATION_JSON)
+            await until(lambda: "outside/sensor" in store.topics)
+            topic = store.topics["outside/sensor"]
+            assert not topic.zenode and topic.matched
+            bus.watch_topic(topic.key)
+            h.session.put("outside/sensor", b'{"value": 2}', encoding=zenoh.Encoding.APPLICATION_JSON)
+            await until(lambda: store.stream.count == 1)
+            assert json.loads(store.stream.samples[0].payload) == {"value": 2}
+            assert store.stream.samples[0].is_json
+            await bus.disconnect()
+            h.session.put("outside/after-disconnect", b"no")
+            await asyncio.sleep(0.1)
+            assert "outside/after-disconnect" not in store.topics
+        finally:
+            await bus.disconnect()
 
 
 def test_profiles_round_trip(tmp_path):
